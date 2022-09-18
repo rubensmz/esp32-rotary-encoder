@@ -62,6 +62,13 @@ typedef enum
     ROTARY_ENCODER_DIRECTION_COUNTER_CLOCKWISE,
 } rotary_encoder_direction_t;
 
+typedef enum
+{
+    ROTARY_ENCODER_SW_ERROR = 0,        ///< Direction not yet known (stationary since reset)
+    ROTARY_ENCODER_SW_CLOSED,
+    ROTARY_ENCODER_SW_OPEN
+} rotary_encoder_sw_t;
+
 // Used internally
 ///@cond INTERNAL
 #define TABLE_COLS 4
@@ -75,6 +82,7 @@ typedef struct
 {
     rotary_encoder_position_t position;    ///< Numerical position since reset. This value increments on clockwise rotation, and decrements on counter-clockewise rotation. Counts full or half steps depending on mode. Set to zero on reset.
     rotary_encoder_direction_t direction;  ///< Direction of last movement. Set to NOT_SET on reset.
+    rotary_encoder_sw_t sw;                ///< Switch state
 } rotary_encoder_state_t;
 
 /**
@@ -85,6 +93,7 @@ typedef struct
 {
     gpio_num_t pin_a;                       ///< GPIO for Signal A from the rotary encoder device
     gpio_num_t pin_b;                       ///< GPIO for Signal B from the rotary encoder device
+    gpio_num_t pin_sw;                      ///< GPIO for switch from the rotary encoder device
     QueueHandle_t queue;                    ///< Handle for event queue, created by ::rotary_encoder_create_queue
     const table_row_t * table;              ///< Pointer to active state transition table
     uint8_t table_state;                    ///< Internal state
@@ -108,7 +117,7 @@ typedef struct
  * @param[in] pin_b GPIO number for rotary encoder output B.
  * @return ESP_OK if successful, ESP_FAIL or ESP_ERR_* if an error occurred.
  */
-esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gpio_num_t pin_b);
+esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gpio_num_t pin_b, gpio_num_t pin_sw);
 
 /**
  * @brief Enable half-stepping mode. This generates twice as many counted steps per rotation.

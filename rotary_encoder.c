@@ -105,6 +105,7 @@
 #define DIR_CW   0x10  // Clockwise step.
 #define DIR_CCW  0x20  // Anti-clockwise step.
 
+
 // Create the half-step state table (emits a code at 00 and 11)
 #define R_START       0x0
 #define H_CCW_BEGIN   0x1
@@ -149,7 +150,6 @@ static uint8_t _process(rotary_encoder_info_t * info)
     {
         // Get state of input pins.
         uint8_t pin_state = (gpio_get_level(info->pin_b) << 1) | gpio_get_level(info->pin_a);
-
         // Determine new state from the pins and state table.
 #ifdef ROTARY_ENCODER_DEBUG
         uint8_t old_state = info->table_state;
@@ -166,11 +166,58 @@ static uint8_t _process(rotary_encoder_info_t * info)
     return event;
 }
 
+static rotary_encoder_sw_t get_sw_state(void * args)
+{
+    rotary_encoder_sw_t sw_st;
+    rotary_encoder_info_t * info = (rotary_encoder_info_t *)args;
+    uint8_t sw_state = (gpio_get_level(info->pin_sw));
+    switch (sw_state)
+    {
+    case 0:
+        sw_st = ROTARY_ENCODER_SW_CLOSED;
+        break;
+    case 1:
+        sw_st = ROTARY_ENCODER_SW_OPEN;
+        break;
+    default:
+        sw_st = ROTARY_ENCODER_SW_ERROR;
+        break;
+    }
+    return sw_st;
+}
+
+static void _isr_rotenc_sw(void * args)
+{
+    rotary_encoder_info_t * info = (rotary_encoder_info_t *)args;
+    info->state.sw = get_sw_state(info);
+
+    if (info->queue)
+    {
+        rotary_encoder_event_t queue_event =
+        {
+            .state =
+            {
+                .position = info->state.position,
+                .direction = info->state.direction,
+                .sw = info->state.sw,
+            },
+        };
+        BaseType_t task_woken = pdFALSE;
+        xQueueOverwriteFromISR(info->queue, &queue_event, &task_woken);
+        if (task_woken)
+        {
+            portYIELD_FROM_ISR();
+        }
+    }
+}
+
 static void _isr_rotenc(void * args)
 {
     rotary_encoder_info_t * info = (rotary_encoder_info_t *)args;
     uint8_t event = _process(info);
     bool send_event = false;
+    rotary_encoder_sw_t sw_state = get_sw_state(info);
+    info->state.sw = sw_state;
 
     switch (event)
     {
@@ -196,6 +243,7 @@ static void _isr_rotenc(void * args)
             {
                 .position = info->state.position,
                 .direction = info->state.direction,
+                .sw = info->state.sw,
             },
         };
         BaseType_t task_woken = pdFALSE;
@@ -207,17 +255,19 @@ static void _isr_rotenc(void * args)
     }
 }
 
-esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gpio_num_t pin_b)
+esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gpio_num_t pin_b, gpio_num_t pin_sw)
 {
     esp_err_t err = ESP_OK;
     if (info)
     {
         info->pin_a = pin_a;
         info->pin_b = pin_b;
+        info->pin_sw = pin_sw;
         info->table = &_ttable_full[0];   //enable_half_step ? &_ttable_half[0] : &_ttable_full[0];
         info->table_state = R_START;
         info->state.position = 0;
         info->state.direction = ROTARY_ENCODER_DIRECTION_NOT_SET;
+        info->state.sw = ROTARY_ENCODER_SW_ERROR;
 
         // configure GPIOs
         gpio_pad_select_gpio(info->pin_a);
@@ -230,9 +280,15 @@ esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gp
         gpio_set_direction(info->pin_b, GPIO_MODE_INPUT);
         gpio_set_intr_type(info->pin_b, GPIO_INTR_ANYEDGE);
 
+        gpio_pad_select_gpio(info->pin_sw);
+        gpio_set_pull_mode(info->pin_sw, GPIO_FLOATING);
+        gpio_set_direction(info->pin_sw, GPIO_MODE_INPUT);
+        gpio_set_intr_type(info->pin_sw, GPIO_INTR_ANYEDGE);
+
         // install interrupt handlers
         gpio_isr_handler_add(info->pin_a, _isr_rotenc, info);
         gpio_isr_handler_add(info->pin_b, _isr_rotenc, info);
+        gpio_isr_handler_add(info->pin_sw, _isr_rotenc_sw, info);
     }
     else
     {
@@ -282,6 +338,7 @@ esp_err_t rotary_encoder_uninit(rotary_encoder_info_t * info)
     {
         gpio_isr_handler_remove(info->pin_a);
         gpio_isr_handler_remove(info->pin_b);
+        gpio_isr_handler_remove(info->pin_sw);
     }
     else
     {
@@ -319,6 +376,7 @@ esp_err_t rotary_encoder_get_state(const rotary_encoder_info_t * info, rotary_en
         // make a snapshot of the state
         state->position = info->state.position;
         state->direction = info->state.direction;
+        state->sw = info->state.sw;
     }
     else
     {
