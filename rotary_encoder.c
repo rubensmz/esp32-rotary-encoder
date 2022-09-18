@@ -180,7 +180,7 @@ static rotary_encoder_sw_t get_sw_state(void * args)
         sw_st = ROTARY_ENCODER_SW_OPEN;
         break;
     default:
-        sw_st = ROTARY_ENCODER_SW_ERROR;
+        sw_st = ROTARY_ENCODER_SW_NOT_SET;
         break;
     }
     return sw_st;
@@ -267,7 +267,7 @@ esp_err_t rotary_encoder_init(rotary_encoder_info_t * info, gpio_num_t pin_a, gp
         info->table_state = R_START;
         info->state.position = 0;
         info->state.direction = ROTARY_ENCODER_DIRECTION_NOT_SET;
-        info->state.sw = ROTARY_ENCODER_SW_ERROR;
+        info->state.sw = ROTARY_ENCODER_SW_NOT_SET;
 
         // configure GPIOs
         gpio_pad_select_gpio(info->pin_a);
